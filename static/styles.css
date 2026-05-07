@@ -48,6 +48,35 @@ header h1 { margin: 0 0 0.25rem; font-size: 1.25rem; }
   color: #1c1c1e;
   border-bottom-left-radius: 4px; /* "tail" */
 }
+/* Empty assistant content has no bubble styling — keeps the typing indicator alone visible */
+.msg-assistant .content:empty { padding: 0; background: transparent; }
+/* Once tokens arrive, hide the typing indicator */
+.msg-assistant .content:not(:empty) ~ .typing { display: none; }
+
+/* Typing indicator: small bubble with three bouncing dots */
+.typing {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 0.7rem 0.85rem;
+  background: #e5e5ea;
+  border-radius: 18px;
+  border-bottom-left-radius: 4px;
+  align-self: flex-start;
+  width: fit-content;
+}
+.typing span {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #8e8e93;
+  animation: typing-bounce 1.4s infinite both;
+}
+.typing span:nth-child(2) { animation-delay: 0.2s; }
+.typing span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
 
 /* --- Compose form --- */
 #chat-form {

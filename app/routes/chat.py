@@ -67,14 +67,15 @@ async def post_message(conversation_id: str, request: Request, text: str = Form(
     return HTMLResponse(
         f'<div class="msg msg-user"><div class="role">user</div>'
         f'<div class="content">{safe_text}</div></div>'
-        f'<div class="msg msg-assistant">'
-        f'<div class="role">assistant</div>'
-        f'<div class="content"'
+        f'<div class="msg msg-assistant"'
         f' hx-ext="sse"'
         f' sse-connect="{stream_url}"'
-        f' sse-swap="token"'
-        f' hx-swap="beforeend"'
-        f' sse-close="done"></div></div>'
+        f' sse-close="done">'
+        f'<div class="role">assistant</div>'
+        f'<div class="content" sse-swap="token" hx-swap="beforeend"></div>'
+        f'<div class="typing" sse-swap="done" hx-swap="outerHTML">'
+        f'<span></span><span></span><span></span></div>'
+        f'</div>'
     )
 
 
