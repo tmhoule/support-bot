@@ -1,0 +1,129 @@
+import json
+from dataclasses import dataclass
+from typing import AsyncIterator, Protocol
+from app.citations import needs_warning_banner, BANNER, extract_citations
+from app.db.repository import ConversationRepository
+from app.tools.registry import ToolRegistry
+from app.retrieval.chroma_client import RetrievedChunk
+
+
+SYSTEM_PROMPT = """You are a tier-1 IT support assistant. Answer ONLY using:
+1. The retrieved documentation chunks provided in the context.
+2. Tool results returned during this conversation.
+
+Rules:
+- Cite every factual claim with the doc path or URL it came from, in square brackets, e.g. [github:security/patching.md] or [https://learn.microsoft.com/...].
+- If the documentation does not cover the question, say "I don't have documentation on that — here's where to look:" and suggest concrete next steps (logs, tools, escalation).
+- Prefer "I don't know" over guessing.
+- Be concise; technicians are time-pressed.
+"""
+
+
+class Retriever(Protocol):
+    async def retrieve(self, query: str, top_k: int = 8) -> list[RetrievedChunk]: ...
+
+
+class LLM(Protocol):
+    async def embed(self, inputs: list[str]) -> list[list[float]]: ...
+    def stream_chat(self, *, messages: list[dict], tools: list[dict]): ...
+
+
+@dataclass
+class _ToolCallAccum:
+    id: str = ""
+    name: str = ""
+    args: str = ""
+
+
+class ChatOrchestrator:
+    MAX_TOOL_ROUNDS = 5
+
+    def __init__(self, *, repo: ConversationRepository, llm: LLM, retriever: Retriever, tools: ToolRegistry):
+        self.repo = repo
+        self.llm = llm
+        self.retriever = retriever
+        self.tools = tools
+
+    async def handle_message(self, conversation_id: str, user_text: str) -> AsyncIterator[str]:
+        self.repo.add_message(conversation_id, role="user", content={"type": "text", "text": user_text})
+
+        chunks = await self.retriever.retrieve(user_text, top_k=8)
+        context_block = self._render_context(chunks)
+        prior = self.repo.list_messages(conversation_id)
+        messages = self._build_messages(prior, context_block, user_text)
+
+        full_text_parts: list[str] = []
+        rounds = 0
+        while rounds < self.MAX_TOOL_ROUNDS:
+            rounds += 1
+            tool_calls: list[_ToolCallAccum] = []
+            assistant_text = ""
+            finish_reason = None
+            async for delta in self.llm.stream_chat(messages=messages, tools=self.tools.openai_tool_schemas()):
+                if delta.text:
+                    assistant_text += delta.text
+                    full_text_parts.append(delta.text)
+                    yield delta.text
+                if delta.tool_call:
+                    self._accum_tool_call(tool_calls, delta.tool_call)
+                if delta.finish_reason:
+                    finish_reason = delta.finish_reason
+            if tool_calls:
+                messages.append({"role": "assistant", "content": assistant_text or None, "tool_calls": [self._tool_call_msg(tc) for tc in tool_calls]})
+                for tc in tool_calls:
+                    args = json.loads(tc.args or "{}")
+                    try:
+                        result = await self.tools.invoke(tc.name, args)
+                    except Exception as exc:
+                        result = {"error": repr(exc)}
+                    self.repo.add_message(conversation_id, role="tool", content={"type": "tool_call", "name": tc.name, "args": args, "result": result})
+                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(result)})
+                continue
+            break
+
+        full_text = "".join(full_text_parts)
+        if needs_warning_banner(full_text):
+            yield "\n\n" + BANNER
+            full_text = full_text + "\n\n" + BANNER
+
+        cites = extract_citations(full_text)
+        self.repo.add_message(conversation_id, role="assistant", content={"type": "model_response", "text": full_text, "citations": [c.__dict__ for c in cites]})
+
+    @staticmethod
+    def _accum_tool_call(buf: list[_ToolCallAccum], delta_tc: dict) -> None:
+        idx = delta_tc.get("index", 0)
+        while len(buf) <= idx:
+            buf.append(_ToolCallAccum())
+        slot = buf[idx]
+        if delta_tc.get("id"):
+            slot.id = delta_tc["id"]
+        fn = delta_tc.get("function", {})
+        if fn.get("name"):
+            slot.name = fn["name"]
+        if fn.get("arguments") is not None:
+            slot.args += fn["arguments"]
+
+    @staticmethod
+    def _tool_call_msg(tc: _ToolCallAccum) -> dict:
+        return {"id": tc.id, "type": "function", "function": {"name": tc.name, "arguments": tc.args}}
+
+    @staticmethod
+    def _render_context(chunks: list[RetrievedChunk]) -> str:
+        if not chunks:
+            return "(no relevant documentation chunks retrieved)"
+        lines = []
+        for c in chunks:
+            cite = f"github:{c.metadata['path']}" if c.metadata.get("source") == "github" else c.metadata.get("path", c.id)
+            lines.append(f"[{cite}] ({c.metadata.get('title_path', '')})\n{c.document}\n")
+        return "\n---\n".join(lines)
+
+    @staticmethod
+    def _build_messages(prior, context_block: str, user_text: str) -> list[dict]:
+        msgs: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "system", "content": f"Retrieved context:\n{context_block}"}]
+        for m in prior:
+            if m.role == "user":
+                msgs.append({"role": "user", "content": m.content_json.get("text", "")})
+            elif m.role == "assistant" and m.content_json.get("type") == "model_response":
+                msgs.append({"role": "assistant", "content": m.content_json.get("text", "")})
+        msgs.append({"role": "user", "content": user_text})
+        return msgs

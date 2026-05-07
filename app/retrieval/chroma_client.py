@@ -44,3 +44,15 @@ class ChromaIndex:
         metas = res["metadatas"][0]
         dists = res["distances"][0]
         return [RetrievedChunk(id=i, document=d, metadata=m, distance=dist) for i, d, m, dist in zip(ids, docs, metas, dists)]
+
+
+class ChromaRetriever:
+    """Adapter that does query-time embedding then vector search."""
+
+    def __init__(self, index: "ChromaIndex", llm):
+        self.index = index
+        self.llm = llm
+
+    async def retrieve(self, query: str, top_k: int = 8) -> list[RetrievedChunk]:
+        [vec] = await self.llm.embed([query])
+        return self.index.search(query_embedding=vec, top_k=top_k)
