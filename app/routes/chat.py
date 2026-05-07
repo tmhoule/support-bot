@@ -1,5 +1,6 @@
-import asyncio
 import json
+import uuid
+from html import escape
 from fastapi import APIRouter, Form, Request, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -12,8 +13,7 @@ from app.config import get_settings
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
-_stream_queues: dict[str, asyncio.Queue] = {}
-_pending_messages: dict[str, str] = {}
+_pending_messages: dict[str, tuple[str, str]] = {}  # turn_id -> (conversation_id, text)
 _limiter: InMemoryRateLimiter | None = None
 
 
@@ -60,25 +60,40 @@ async def post_message(conversation_id: str, request: Request, text: str = Form(
     key = f"{request.client.host}:{conversation_id}"
     if not _get_limiter().check(key):
         raise HTTPException(status_code=429, detail="rate limit exceeded")
-    _pending_messages[conversation_id] = text
-    return HTMLResponse(f'<div class="msg msg-user"><div class="role">user</div><div class="content">{text}</div></div>')
+    turn_id = uuid.uuid4().hex
+    _pending_messages[turn_id] = (conversation_id, text)
+    safe_text = escape(text).replace("\n", "<br>")
+    stream_url = f"/chat/{conversation_id}/stream/{turn_id}"
+    return HTMLResponse(
+        f'<div class="msg msg-user"><div class="role">user</div>'
+        f'<div class="content">{safe_text}</div></div>'
+        f'<div class="msg msg-assistant">'
+        f'<div class="role">assistant</div>'
+        f'<div class="content"'
+        f' hx-ext="sse"'
+        f' sse-connect="{stream_url}"'
+        f' sse-swap="token"'
+        f' hx-swap="beforeend"'
+        f' sse-close="done"></div></div>'
+    )
 
 
-@router.get("/chat/{conversation_id}/stream")
-async def stream(conversation_id: str, request: Request):
-    text = _pending_messages.pop(conversation_id, None)
-    if text is None:
+@router.get("/chat/{conversation_id}/stream/{turn_id}")
+async def stream(conversation_id: str, turn_id: str, request: Request):
+    pending = _pending_messages.pop(turn_id, None)
+    if pending is None:
         async def empty():
-            yield {"event": "token", "data": ""}
+            yield {"event": "done", "data": ""}
         return EventSourceResponse(empty())
 
+    _, text = pending
     from app.main import build_orchestrator
     orch = build_orchestrator()
 
     async def gen():
         try:
             async for tok in orch.handle_message(conversation_id, text):
-                yield {"event": "token", "data": tok}
+                yield {"event": "token", "data": escape(tok).replace("\n", "<br>")}
         finally:
             yield {"event": "done", "data": ""}
 

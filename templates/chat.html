@@ -4,13 +4,12 @@
 <div id="transcript">
   {% for m in messages %}{% include "_message.html" %}{% endfor %}
 </div>
-<form id="chat-form" hx-post="/chat/{{ conversation_id }}/message" hx-target="#transcript" hx-swap="beforeend">
+<form id="chat-form"
+      hx-post="/chat/{{ conversation_id }}/message"
+      hx-target="#transcript"
+      hx-swap="beforeend"
+      hx-on::after-request="this.reset()">
   <textarea name="text" required placeholder="Ask a question..."></textarea>
   <button type="submit">Send</button>
 </form>
-<div id="stream"
-  hx-ext="sse"
-  sse-connect="/chat/{{ conversation_id }}/stream"
-  sse-swap="token"
-  hx-swap="beforeend"></div>
 {% endblock %}
