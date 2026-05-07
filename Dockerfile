@@ -6,10 +6,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir -e .
-
 COPY app ./app
 COPY indexer ./indexer
+RUN pip install --no-cache-dir .
+
 COPY templates ./templates
 COPY static ./static
 COPY alembic.ini ./
