@@ -10,6 +10,7 @@ from app.db.session import session_scope
 from app.db.repository import ConversationRepository
 from app.rate_limit import InMemoryRateLimiter
 from app.config import get_settings
+from app.citations import CitationStreamRewriter, render_inline_citations_html
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -39,6 +40,7 @@ async def start_chat(tech_name: str = Form(...)):
 
 @router.get("/chat/{conversation_id}", response_class=HTMLResponse)
 async def chat_page(conversation_id: str, request: Request):
+    settings = get_settings()
     with session_scope() as s:
         repo = ConversationRepository(s)
         convo = repo.get_conversation(conversation_id)
@@ -46,8 +48,10 @@ async def chat_page(conversation_id: str, request: Request):
             raise HTTPException(404)
         messages = []
         for m in repo.list_messages(conversation_id):
-            text = m.content_json.get("text") if m.content_json.get("type") in ("text", "model_response") else json.dumps(m.content_json)
-            messages.append({"role": m.role, "text": text})
+            raw = m.content_json.get("text") if m.content_json.get("type") in ("text", "model_response") else json.dumps(m.content_json)
+            html = escape(raw or "").replace("\n", "<br>")
+            html = render_inline_citations_html(html, github_repo_url=settings.github_repo_url)
+            messages.append({"role": m.role, "text": html})
         return templates.TemplateResponse(
             request,
             "chat.html",
@@ -88,13 +92,20 @@ async def stream(conversation_id: str, turn_id: str, request: Request):
         return EventSourceResponse(empty())
 
     _, text = pending
+    settings = get_settings()
     from app.main import build_orchestrator
     orch = build_orchestrator()
 
     async def gen():
+        rewriter = CitationStreamRewriter(github_repo_url=settings.github_repo_url)
         try:
             async for tok in orch.handle_message(conversation_id, text):
-                yield {"event": "token", "data": escape(tok).replace("\n", "<br>")}
+                rendered = rewriter.feed(tok)
+                if rendered:
+                    yield {"event": "token", "data": rendered}
+            tail = rewriter.flush()
+            if tail:
+                yield {"event": "token", "data": tail}
         finally:
             yield {"event": "done", "data": ""}
 

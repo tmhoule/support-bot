@@ -133,11 +133,12 @@ class ChatOrchestrator:
 
     @staticmethod
     def _build_messages(prior, context_block: str, user_text: str) -> list[dict]:
+        # `prior` already contains the just-saved user message at the end (added before this call),
+        # so the loop carries the full transcript including the current turn — no extra append.
         msgs: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "system", "content": f"Retrieved context:\n{context_block}"}]
         for m in prior:
             if m.role == "user":
                 msgs.append({"role": "user", "content": m.content_json.get("text", "")})
             elif m.role == "assistant" and m.content_json.get("type") == "model_response":
                 msgs.append({"role": "assistant", "content": m.content_json.get("text", "")})
-        msgs.append({"role": "user", "content": user_text})
         return msgs
