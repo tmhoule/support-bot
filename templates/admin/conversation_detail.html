@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>{{ convo.tech_name }} — {{ convo.started_at }}</h2>
+{% for m in msgs %}
+<details class="msg msg-{{ m.role }}">
+  <summary>{{ m.role }} @ {{ m.created_at }}</summary>
+  <pre>{{ m.body }}</pre>
+</details>
+{% endfor %}
+<p><a href="/admin/conversations">← back</a></p>
+{% endblock %}

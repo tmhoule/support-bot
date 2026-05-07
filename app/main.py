@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from app.config import get_settings
-from app.routes import health, chat
+from app.routes import health, chat, admin
 from app.db.session import session_scope
 from app.db.repository import ConversationRepository
 from app.llm.litellm_client import LiteLLMClient
@@ -17,6 +17,7 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory="static"), name="static")
     app.include_router(health.router)
     app.include_router(chat.router)
+    app.include_router(admin.router)
     return app
 
 

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Indexer status</h2>
+<p>Chroma documents: {{ chroma_count }}</p>
+<table class="convos">
+  <thead><tr><th>Source</th><th>Last run</th><th>SHA</th><th>Errors</th><th>Last error</th></tr></thead>
+  <tbody>
+    {% for src, wm in watermarks.items() %}
+    <tr>
+      <td>{{ src }}</td>
+      <td>{{ wm.last_run if wm else "never" }}</td>
+      <td>{{ wm.sha if wm else "" }}</td>
+      <td>{{ wm.error_count if wm else 0 }}</td>
+      <td>{{ wm.last_error if wm else "" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
