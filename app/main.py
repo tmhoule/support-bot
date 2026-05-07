@@ -13,6 +13,9 @@ from app.orchestrator import ChatOrchestrator
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title="Support Bot")
+    from app.logging_setup import configure_logging, RequestIdMiddleware
+    configure_logging()
+    app.add_middleware(RequestIdMiddleware)
     app.state.settings = settings
     app.mount("/static", StaticFiles(directory="static"), name="static")
     app.include_router(health.router)
