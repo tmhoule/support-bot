@@ -1,4 +1,5 @@
 import os
+import tempfile
 
 # Ensure required env vars are present at import time so that modules which
 # instantiate Settings on import (e.g. app.main) succeed during test collection.
@@ -11,6 +12,7 @@ _TEST_ENV_DEFAULTS = {
     "GITHUB_TOKEN": "x",
     "ADMIN_TOKEN": "x",
     "SESSION_SECRET": "x" * 32,
+    "DATA_DIR": tempfile.mkdtemp(prefix="support-bot-test-"),
 }
 
 for _k, _v in _TEST_ENV_DEFAULTS.items():
