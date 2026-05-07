@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block content %}
+<form method="post" action="/chat/start" class="name-form">
+  <label>What's your name? <input name="tech_name" required autofocus></label>
+  <button type="submit">Start</button>
+</form>
+{% endblock %}
