@@ -7,11 +7,21 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.db.session import session_scope
 from app.db.repository import ConversationRepository
+from app.rate_limit import InMemoryRateLimiter
+from app.config import get_settings
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 _stream_queues: dict[str, asyncio.Queue] = {}
 _pending_messages: dict[str, str] = {}
+_limiter: InMemoryRateLimiter | None = None
+
+
+def _get_limiter() -> InMemoryRateLimiter:
+    global _limiter
+    if _limiter is None:
+        _limiter = InMemoryRateLimiter(limit_per_min=get_settings().rate_limit_per_min)
+    return _limiter
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -46,7 +56,10 @@ async def chat_page(conversation_id: str, request: Request):
 
 
 @router.post("/chat/{conversation_id}/message", response_class=HTMLResponse)
-async def post_message(conversation_id: str, text: str = Form(...)):
+async def post_message(conversation_id: str, request: Request, text: str = Form(...)):
+    key = f"{request.client.host}:{conversation_id}"
+    if not _get_limiter().check(key):
+        raise HTTPException(status_code=429, detail="rate limit exceeded")
     _pending_messages[conversation_id] = text
     return HTMLResponse(f'<div class="msg msg-user"><div class="role">user</div><div class="content">{text}</div></div>')
 
