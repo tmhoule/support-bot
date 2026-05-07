@@ -5,6 +5,7 @@ from app.citations import needs_warning_banner, BANNER, extract_citations
 from app.db.repository import ConversationRepository
 from app.tools.registry import ToolRegistry
 from app.retrieval.chroma_client import RetrievedChunk
+from app.retrieval.query_expansion import expand_query
 
 
 SYSTEM_PROMPT = """You are a tier-1 IT support assistant. Answer ONLY using:
@@ -37,17 +38,30 @@ class _ToolCallAccum:
 
 class ChatOrchestrator:
     MAX_TOOL_ROUNDS = 5
+    TOP_K_PER_QUERY = 15
+    FINAL_CHUNK_CAP = 20
 
-    def __init__(self, *, repo: ConversationRepository, llm: LLM, retriever: Retriever, tools: ToolRegistry):
+    def __init__(self, *, repo: ConversationRepository, llm: LLM, retriever: Retriever, tools: ToolRegistry, expand_queries: bool = True):
         self.repo = repo
         self.llm = llm
         self.retriever = retriever
         self.tools = tools
+        self.expand_queries = expand_queries
+
+    async def _retrieve_for(self, user_text: str) -> list[RetrievedChunk]:
+        queries = await expand_query(user_text, self.llm) if self.expand_queries else [user_text]
+        best_by_id: dict[str, RetrievedChunk] = {}
+        for q in queries:
+            for chunk in await self.retriever.retrieve(q, top_k=self.TOP_K_PER_QUERY):
+                existing = best_by_id.get(chunk.id)
+                if existing is None or chunk.distance < existing.distance:
+                    best_by_id[chunk.id] = chunk
+        return sorted(best_by_id.values(), key=lambda c: c.distance)[: self.FINAL_CHUNK_CAP]
 
     async def handle_message(self, conversation_id: str, user_text: str) -> AsyncIterator[str]:
         self.repo.add_message(conversation_id, role="user", content={"type": "text", "text": user_text})
 
-        chunks = await self.retriever.retrieve(user_text, top_k=8)
+        chunks = await self._retrieve_for(user_text)
         context_block = self._render_context(chunks)
         prior = self.repo.list_messages(conversation_id)
         messages = self._build_messages(prior, context_block, user_text)

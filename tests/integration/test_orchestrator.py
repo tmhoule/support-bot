@@ -35,7 +35,7 @@ async def test_simple_text_response_persisted(db_session):
     llm = FakeLLM(scripts)
     tools = ToolRegistry()
 
-    orch = ChatOrchestrator(repo=repo, llm=llm, retriever=FakeIndex(), tools=tools)
+    orch = ChatOrchestrator(repo=repo, llm=llm, retriever=FakeIndex(), tools=tools, expand_queries=False)
     out = []
     async for tok in orch.handle_message(convo.id, "What's the patching cadence?"):
         out.append(tok)
@@ -51,7 +51,7 @@ async def test_no_citation_factual_gets_banner(db_session):
     repo = ConversationRepository(db_session)
     convo = repo.create_conversation(tech_name="Bob")
     scripts = [[StreamDelta(text="RDP requires port 3389 to be open."), StreamDelta(finish_reason="stop")]]
-    orch = ChatOrchestrator(repo=repo, llm=FakeLLM(scripts), retriever=FakeIndex(), tools=ToolRegistry())
+    orch = ChatOrchestrator(repo=repo, llm=FakeLLM(scripts), retriever=FakeIndex(), tools=ToolRegistry(), expand_queries=False)
     out = []
     async for tok in orch.handle_message(convo.id, "Tell me about RDP"):
         out.append(tok)
@@ -80,7 +80,7 @@ async def test_tool_call_loop(db_session):
             StreamDelta(finish_reason="stop"),
         ],
     ]
-    orch = ChatOrchestrator(repo=repo, llm=FakeLLM(scripts), retriever=FakeIndex(), tools=tool_registry)
+    orch = ChatOrchestrator(repo=repo, llm=FakeLLM(scripts), retriever=FakeIndex(), tools=tool_registry, expand_queries=False)
     full = "".join([t async for t in orch.handle_message(convo.id, "rdp question")])
     assert "learn.microsoft.com" in full
     msgs = repo.list_messages(convo.id)
