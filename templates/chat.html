@@ -35,7 +35,8 @@
         hx-target="#transcript"
         hx-swap="beforeend"
         hx-on::after-request="this.reset()">
-    <textarea name="text" required placeholder="Ask a question..."></textarea>
+    <textarea name="text" required placeholder="Ask a question... (Enter to send, Shift+Enter for newline)"
+              onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.form.requestSubmit();}"></textarea>
     <button type="submit">Send</button>
   </form>
 </div>
