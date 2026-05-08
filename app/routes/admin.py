@@ -8,12 +8,13 @@ import json
 from html import escape
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from app.config import get_settings
 from app.citations import render_inline_citations_html
 from app.db.session import session_scope
 from app.db.repository import ConversationRepository
+from app.uploads import list_upload_files
 from indexer.watermark import WatermarkStore
 from app.retrieval.chroma_client import ChromaIndex
 
@@ -74,7 +75,7 @@ def _tool_call_one_liner(name: str, args: dict, result) -> str:
     return f"{name}(...)"
 
 
-def _format_entry(m, github_repo_url: str) -> dict:
+def _format_entry(m, github_repo_url: str, available_uploads: set[str]) -> dict:
     cj = m.content_json or {}
     ctype = cj.get("type")
     base = {
@@ -102,10 +103,12 @@ def _format_entry(m, github_repo_url: str) -> dict:
             "result_pretty": json.dumps(result, indent=2),
         }
     if ctype == "upload":
+        filename = cj.get("filename", "file")
         return {
             **base,
-            "filename": cj.get("filename", "file"),
+            "filename": filename,
             "size_kb": (cj.get("size") or 0) / 1024,
+            "available": filename in available_uploads,
         }
     return {**base, "json": json.dumps(cj, indent=2)}
 
@@ -118,8 +121,26 @@ async def conversation_detail(conversation_id: str, request: Request):
         convo = repo.get_conversation(conversation_id)
         if not convo:
             raise HTTPException(404)
-        entries = [_format_entry(m, settings.github_repo_url) for m in repo.list_messages(conversation_id)]
+        available = {f["filename"] for f in list_upload_files(conversation_id)}
+        entries = [_format_entry(m, settings.github_repo_url, available) for m in repo.list_messages(conversation_id)]
         return templates.TemplateResponse(request, "admin/conversation_detail.html", {"convo": convo, "entries": entries})
+
+
+@router.get("/conversations/{conversation_id}/upload/{filename}")
+async def admin_download_upload(conversation_id: str, filename: str):
+    """Download an uploaded file. Match by display filename within the conversation
+    directory — never construct a path from user input, so traversal is impossible."""
+    with session_scope() as s:
+        if not ConversationRepository(s).get_conversation(conversation_id):
+            raise HTTPException(404)
+    for f in list_upload_files(conversation_id):
+        if f["filename"] == filename:
+            return FileResponse(
+                path=str(f["_path"]),
+                filename=filename,
+                media_type="application/octet-stream",
+            )
+    raise HTTPException(404, detail="file not found (may have been deleted)")
 
 
 @router.get("/indexer-status", response_class=HTMLResponse)

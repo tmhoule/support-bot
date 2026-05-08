@@ -272,3 +272,4 @@ table.convos a { color: #007aff; text-decoration: none; }
   border-radius: 3px;
   font-family: ui-monospace, Menlo, monospace;
 }
+.tl-muted { color: #999; font-style: italic; font-size: 0.85rem; }

@@ -45,6 +45,11 @@
           </details>
         {% elif m.type == "upload" %}
           &#128206; <strong>{{ m.filename }}</strong> ({{ "%.1f"|format(m.size_kb) }} KB)
+          {% if m.available %}
+            &middot; <a href="/admin/conversations/{{ convo.id }}/upload/{{ m.filename }}" download>download</a>
+          {% else %}
+            <span class="tl-muted">(deleted)</span>
+          {% endif %}
         {% else %}
           <pre>{{ m.json }}</pre>
         {% endif %}
