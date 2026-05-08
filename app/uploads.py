@@ -65,28 +65,44 @@ def read_upload_text(path: Path, max_bytes: int = MAX_PROMPT_BYTES_PER_FILE) -> 
     return raw.decode("utf-8", errors="replace")
 
 
-def render_uploads_for_prompt(prior_messages, *, max_total_bytes: int = MAX_TOTAL_PROMPT_BYTES) -> str:
-    """Render upload-role messages as a verbatim prompt block (latest first, capped)."""
-    settings = get_settings()
-    sections: list[str] = []
-    total = 0
-    for m in reversed(prior_messages):
-        if m.role != "upload":
+def list_upload_files(conversation_id: str) -> list[dict]:
+    """Return upload metadata for a conversation. Disk-scoped — never crosses into other conversations.
+
+    Each entry: {"filename", "size", "uploaded_at", "_path": Path}.
+    """
+    udir = upload_dir(conversation_id)
+    if not udir.exists():
+        return []
+    out: list[dict] = []
+    for p in sorted(udir.iterdir()):
+        if not p.is_file():
             continue
-        rel = m.content_json.get("path")
-        if not rel:
-            continue
-        path = Path(settings.data_dir) / rel
-        if not path.exists():
-            continue
-        try:
-            content = read_upload_text(path)
-        except Exception:
-            continue
-        section = f"--- {m.content_json.get('filename', 'file')} ---\n{content}"
-        if total + len(section) > max_total_bytes:
-            break
-        sections.append(section)
-        total += len(section)
-    sections.reverse()
-    return "\n\n".join(sections)
+        ts, _, original = p.name.partition("-")
+        out.append({
+            "filename": original or p.name,
+            "size": p.stat().st_size,
+            "uploaded_at": ts if original else "",
+            "_path": p,
+        })
+    return out
+
+
+def read_upload_by_filename(conversation_id: str, filename: str, *, max_bytes: int = MAX_PROMPT_BYTES_PER_FILE) -> dict:
+    """Read an upload by display filename, scoped to this conversation only.
+
+    Returns either {"filename", "content", "size", "truncated"} on success
+    or {"error", "available"} if the file isn't found in this conversation.
+    The lookup matches against the directory listing of `{DATA_DIR}/uploads/{conversation_id}/`,
+    so path-traversal arguments cannot escape the scope.
+    """
+    files = list_upload_files(conversation_id)
+    for f in files:
+        if f["filename"] == filename:
+            content = read_upload_text(f["_path"], max_bytes=max_bytes)
+            return {
+                "filename": filename,
+                "content": content,
+                "size": f["size"],
+                "truncated": f["size"] > max_bytes,
+            }
+    return {"error": f"file not found: {filename}", "available": [f["filename"] for f in files]}

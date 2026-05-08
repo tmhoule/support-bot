@@ -17,6 +17,9 @@ class ToolRegistry:
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
 
+    def __iter__(self):
+        return iter(self._tools.values())
+
     def openai_tool_schemas(self) -> list[dict]:
         return [
             {"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.parameters_schema}}
