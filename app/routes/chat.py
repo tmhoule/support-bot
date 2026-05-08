@@ -1,7 +1,7 @@
 import json
 import uuid
 from html import escape
-from fastapi import APIRouter, Form, Request, HTTPException, status
+from fastapi import APIRouter, Form, Request, HTTPException, UploadFile, File, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sse_starlette.sse import EventSourceResponse
@@ -11,6 +11,7 @@ from app.db.repository import ConversationRepository
 from app.rate_limit import InMemoryRateLimiter
 from app.config import get_settings
 from app.citations import CitationStreamRewriter, render_inline_citations_html
+from app.uploads import save_upload
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -48,9 +49,15 @@ async def chat_page(conversation_id: str, request: Request):
             raise HTTPException(404)
         messages = []
         for m in repo.list_messages(conversation_id):
-            raw = m.content_json.get("text") if m.content_json.get("type") in ("text", "model_response") else json.dumps(m.content_json)
-            html = escape(raw or "").replace("\n", "<br>")
-            html = render_inline_citations_html(html, github_repo_url=settings.github_repo_url)
+            ctype = m.content_json.get("type")
+            if ctype == "upload":
+                name = escape(m.content_json.get("filename", "file"))
+                kb = (m.content_json.get("size") or 0) / 1024
+                html = f'\U0001F4CE <strong>{name}</strong> ({kb:.1f} KB)'
+            else:
+                raw = m.content_json.get("text") if ctype in ("text", "model_response") else json.dumps(m.content_json)
+                html = escape(raw or "").replace("\n", "<br>")
+                html = render_inline_citations_html(html, github_repo_url=settings.github_repo_url)
             messages.append({"role": m.role, "text": html})
         return templates.TemplateResponse(
             request,
@@ -80,6 +87,36 @@ async def post_message(conversation_id: str, request: Request, text: str = Form(
         f'<div class="typing" sse-swap="done" hx-swap="outerHTML">'
         f'<span></span><span></span><span></span></div>'
         f'</div>'
+    )
+
+
+@router.post("/chat/{conversation_id}/upload", response_class=HTMLResponse)
+async def upload_file(conversation_id: str, file: UploadFile = File(...)):
+    with session_scope() as s:
+        if not ConversationRepository(s).get_conversation(conversation_id):
+            raise HTTPException(404)
+
+    try:
+        info = await save_upload(conversation_id, file.filename or "upload", file)
+    except ValueError as e:
+        return HTMLResponse(
+            f'<div class="msg msg-system"><div class="content err">Upload failed: {escape(str(e))}</div></div>',
+            status_code=400,
+        )
+
+    with session_scope() as s:
+        ConversationRepository(s).add_message(
+            conversation_id,
+            role="upload",
+            content={"type": "upload", **info},
+        )
+
+    name = escape(info["filename"])
+    kb = info["size"] / 1024
+    return HTMLResponse(
+        f'<div class="msg msg-system"><div class="content">'
+        f'\U0001F4CE <strong>{name}</strong> ({kb:.1f} KB) — uploaded; the bot will see this on your next message.'
+        f'</div></div>'
     )
 
 

@@ -6,6 +6,7 @@ from app.db.repository import ConversationRepository
 from app.tools.registry import ToolRegistry
 from app.retrieval.chroma_client import RetrievedChunk
 from app.retrieval.query_expansion import expand_query
+from app.uploads import render_uploads_for_prompt
 
 
 SYSTEM_PROMPT = """You are a tier-1 IT support assistant. Answer ONLY using:
@@ -64,7 +65,8 @@ class ChatOrchestrator:
         chunks = await self._retrieve_for(user_text)
         context_block = self._render_context(chunks)
         prior = self.repo.list_messages(conversation_id)
-        messages = self._build_messages(prior, context_block, user_text)
+        upload_block = render_uploads_for_prompt(prior)
+        messages = self._build_messages(prior, context_block, upload_block, user_text)
 
         full_text_parts: list[str] = []
         rounds = 0
@@ -132,10 +134,18 @@ class ChatOrchestrator:
         return "\n---\n".join(lines)
 
     @staticmethod
-    def _build_messages(prior, context_block: str, user_text: str) -> list[dict]:
+    def _build_messages(prior, context_block: str, upload_block: str, user_text: str) -> list[dict]:
         # `prior` already contains the just-saved user message at the end (added before this call),
         # so the loop carries the full transcript including the current turn — no extra append.
-        msgs: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "system", "content": f"Retrieved context:\n{context_block}"}]
+        msgs: list[dict] = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": f"Retrieved context:\n{context_block}"},
+        ]
+        if upload_block:
+            msgs.append({
+                "role": "system",
+                "content": f"Files the technician uploaded in this conversation (verbatim):\n{upload_block}",
+            })
         for m in prior:
             if m.role == "user":
                 msgs.append({"role": "user", "content": m.content_json.get("text", "")})

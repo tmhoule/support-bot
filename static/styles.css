@@ -78,15 +78,21 @@ header h1 { margin: 0 0 0.25rem; font-size: 1.25rem; }
   30% { transform: translateY(-4px); opacity: 1; }
 }
 
-/* --- Compose form --- */
-#chat-form {
+/* --- Compose bar (upload + chat form) --- */
+#compose-bar {
   display: flex;
   gap: 0.5rem;
+  align-items: stretch;
   position: sticky;
   bottom: 0;
   background: #fafafa;
   padding: 0.75rem 0;
   border-top: 1px solid #e5e5ea;
+}
+#chat-form {
+  flex: 1;
+  display: flex;
+  gap: 0.5rem;
 }
 #chat-form textarea {
   flex: 1;
@@ -109,6 +115,40 @@ header h1 { margin: 0 0 0.25rem; font-size: 1.25rem; }
   cursor: pointer;
 }
 #chat-form button:hover { background: #0062cc; }
+
+/* --- Upload button (paperclip) --- */
+.upload-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  background: white;
+  border: 1px solid #d1d1d6;
+  cursor: pointer;
+  font-size: 1.1rem;
+  user-select: none;
+  flex-shrink: 0;
+}
+.upload-btn:hover { background: #f0f0f0; }
+.upload-btn input[type="file"] { display: none; }
+
+/* --- System / upload notice bubble (centered, neutral) --- */
+.msg-system {
+  align-self: center;
+  max-width: 80%;
+  font-size: 0.85rem;
+}
+.msg-system .role { display: none; }
+.msg-system .content {
+  padding: 0.45rem 0.85rem;
+  background: #fff8e6;
+  border: 1px solid #f0e0a8;
+  border-radius: 12px;
+  color: #6b5a00;
+}
+.msg-system .content.err { background: #fce4e4; border-color: #ffb4b4; color: #a00; }
 
 /* --- Name prompt --- */
 .name-form { display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; }
