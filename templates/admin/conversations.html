@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Admin – Conversations{% endblock %}
 {% block content %}
+<nav class="admin-nav">
+  <a href="/admin/conversations">Conversations</a>
+  <a href="/admin/indexer-status">Indexer status</a>
+  <span class="admin-warn">internal-only · no auth in v1</span>
+</nav>
 <form method="get"><input name="name" value="{{ name }}" placeholder="filter by name"><button>Filter</button></form>
 <table class="convos">
   <thead><tr><th>Tech</th><th>Started</th><th>Last active</th><th></th></tr></thead>

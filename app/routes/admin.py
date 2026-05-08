@@ -1,6 +1,12 @@
+"""Admin pages — fully open in v1.
+
+No authentication: same trust model as the chat UI (network-trusted, anonymous).
+Will be gated by NetIQ SAML at the proxy layer when that integration lands.
+"""
+
 import json
 from pathlib import Path
-from fastapi import APIRouter, Header, HTTPException, Request, Query
+from fastapi import APIRouter, HTTPException, Request, Query
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from app.config import get_settings
@@ -13,23 +19,20 @@ router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory="templates")
 
 
-async def require_admin(x_admin_token: str = Header(default="")):
-    if x_admin_token != get_settings().admin_token:
-        raise HTTPException(status_code=401, detail="admin token required")
-
-
 @router.get("/conversations", response_class=HTMLResponse)
-async def conversations(request: Request, x_admin_token: str = Header(default=""), name: str | None = Query(default=None), limit: int = 50, offset: int = 0):
-    await require_admin(x_admin_token)
+async def conversations(request: Request, name: str | None = Query(default=None), limit: int = 50, offset: int = 0):
     with session_scope() as s:
         repo = ConversationRepository(s)
         rows = repo.list_conversations(limit=limit, offset=offset, name_filter=name)
-        return templates.TemplateResponse(request, "admin/conversations.html", {"rows": rows, "name": name or "", "limit": limit, "offset": offset})
+        return templates.TemplateResponse(
+            request,
+            "admin/conversations.html",
+            {"rows": rows, "name": name or "", "limit": limit, "offset": offset},
+        )
 
 
 @router.get("/conversations/{conversation_id}", response_class=HTMLResponse)
-async def conversation_detail(conversation_id: str, request: Request, x_admin_token: str = Header(default="")):
-    await require_admin(x_admin_token)
+async def conversation_detail(conversation_id: str, request: Request):
     with session_scope() as s:
         repo = ConversationRepository(s)
         convo = repo.get_conversation(conversation_id)
@@ -42,8 +45,7 @@ async def conversation_detail(conversation_id: str, request: Request, x_admin_to
 
 
 @router.get("/indexer-status", response_class=HTMLResponse)
-async def indexer_status(request: Request, x_admin_token: str = Header(default="")):
-    await require_admin(x_admin_token)
+async def indexer_status(request: Request):
     settings = get_settings()
     wm = WatermarkStore(Path(settings.data_dir) / "watermarks.json")
     chroma = ChromaIndex(persist_dir=f"{settings.data_dir}/chroma")
