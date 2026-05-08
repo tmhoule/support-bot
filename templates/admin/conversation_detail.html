@@ -1,11 +1,57 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>{{ convo.tech_name }} — {{ convo.started_at }}</h2>
-{% for m in msgs %}
-<details class="msg msg-{{ m.role }}">
-  <summary>{{ m.role }} @ {{ m.created_at }}</summary>
-  <pre>{{ m.body }}</pre>
-</details>
-{% endfor %}
-<p><a href="/admin/conversations">← back</a></p>
+<nav class="admin-nav">
+  <a href="/admin">Overview</a>
+  <a href="/admin/conversations">All conversations</a>
+  <a href="/admin/indexer-status">Indexer status</a>
+  <span class="admin-warn">internal-only &middot; no auth in v1</span>
+</nav>
+
+<div class="convo-header">
+  <h2>{{ convo.tech_name }}</h2>
+  <div class="convo-meta">
+    Started {{ convo.started_at.strftime("%Y-%m-%d %H:%M") }}
+    &middot; Last active {{ convo.last_active.strftime("%Y-%m-%d %H:%M") }}
+    &middot; {{ entries|length }} messages
+  </div>
+</div>
+
+<div class="timeline">
+  {% for m in entries %}
+    <article class="tl-entry tl-{{ m.role }}">
+      <div class="tl-header">
+        <span class="tl-role">{{ m.role }}</span>
+        <span class="tl-time">{{ m.time }}</span>
+        {% if m.flagged %}<span class="tl-flagged">flagged</span>{% endif %}
+      </div>
+      <div class="tl-body">
+        {% if m.type == "text" %}
+          {{ m.html|safe }}
+        {% elif m.type == "model_response" %}
+          {{ m.html|safe }}
+          {% if m.citations %}
+            <div class="tl-citations">
+              {% for c in m.citations %}
+                <span class="tl-citation">{{ c.kind }}: {{ c.ref }}</span>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% elif m.type == "tool_call" %}
+          <div class="tl-tool-summary">&#x1F527; {{ m.summary }}</div>
+          <details class="tl-tool-detail">
+            <summary>show args + result</summary>
+            <div class="tl-tool-section"><div class="tl-label">args</div><pre>{{ m.args_pretty }}</pre></div>
+            <div class="tl-tool-section"><div class="tl-label">result</div><pre>{{ m.result_pretty }}</pre></div>
+          </details>
+        {% elif m.type == "upload" %}
+          &#128206; <strong>{{ m.filename }}</strong> ({{ "%.1f"|format(m.size_kb) }} KB)
+        {% else %}
+          <pre>{{ m.json }}</pre>
+        {% endif %}
+      </div>
+    </article>
+  {% endfor %}
+</div>
+
+<p><a href="/admin/conversations">&larr; back to conversations</a></p>
 {% endblock %}

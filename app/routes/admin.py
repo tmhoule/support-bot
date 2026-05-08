@@ -5,11 +5,13 @@ Will be gated by NetIQ SAML at the proxy layer when that integration lands.
 """
 
 import json
+from html import escape
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, Query
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from app.config import get_settings
+from app.citations import render_inline_citations_html
 from app.db.session import session_scope
 from app.db.repository import ConversationRepository
 from indexer.watermark import WatermarkStore
@@ -54,17 +56,70 @@ async def conversations(request: Request, name: str | None = Query(default=None)
         )
 
 
+def _tool_call_one_liner(name: str, args: dict, result) -> str:
+    """A single short readable line summarizing what a tool call did."""
+    if name == "web_search":
+        q = args.get("query", "")
+        n = len(result.get("results", [])) if isinstance(result, dict) else 0
+        return f'web_search("{q}") → {n} result(s)'
+    if name == "list_uploads":
+        files = result.get("files", []) if isinstance(result, dict) else []
+        names = ", ".join(f["filename"] for f in files) if files else "no files"
+        return f"list_uploads() → {names}"
+    if name == "read_upload":
+        f = args.get("filename", "?")
+        if isinstance(result, dict) and "content" in result:
+            return f'read_upload("{f}") → {result.get("size", 0)} bytes'
+        return f'read_upload("{f}") → error'
+    return f"{name}(...)"
+
+
+def _format_entry(m, github_repo_url: str) -> dict:
+    cj = m.content_json or {}
+    ctype = cj.get("type")
+    base = {
+        "role": m.role,
+        "time": m.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        "type": ctype or "raw",
+    }
+    if ctype == "text":
+        text = escape(cj.get("text", "")).replace("\n", "<br>")
+        return {**base, "html": text}
+    if ctype == "model_response":
+        text = escape(cj.get("text", "")).replace("\n", "<br>")
+        text = render_inline_citations_html(text, github_repo_url=github_repo_url)
+        cites = cj.get("citations", []) or []
+        return {**base, "html": text, "citations": cites, "flagged": cj.get("flagged", False)}
+    if ctype == "tool_call":
+        name = cj.get("name", "?")
+        args = cj.get("args", {}) or {}
+        result = cj.get("result", {}) or {}
+        return {
+            **base,
+            "tool_name": name,
+            "summary": _tool_call_one_liner(name, args, result),
+            "args_pretty": json.dumps(args, indent=2),
+            "result_pretty": json.dumps(result, indent=2),
+        }
+    if ctype == "upload":
+        return {
+            **base,
+            "filename": cj.get("filename", "file"),
+            "size_kb": (cj.get("size") or 0) / 1024,
+        }
+    return {**base, "json": json.dumps(cj, indent=2)}
+
+
 @router.get("/conversations/{conversation_id}", response_class=HTMLResponse)
 async def conversation_detail(conversation_id: str, request: Request):
+    settings = get_settings()
     with session_scope() as s:
         repo = ConversationRepository(s)
         convo = repo.get_conversation(conversation_id)
         if not convo:
             raise HTTPException(404)
-        msgs = []
-        for m in repo.list_messages(conversation_id):
-            msgs.append({"role": m.role, "created_at": m.created_at.isoformat(), "body": json.dumps(m.content_json, indent=2)})
-        return templates.TemplateResponse(request, "admin/conversation_detail.html", {"convo": convo, "msgs": msgs})
+        entries = [_format_entry(m, settings.github_repo_url) for m in repo.list_messages(conversation_id)]
+        return templates.TemplateResponse(request, "admin/conversation_detail.html", {"convo": convo, "entries": entries})
 
 
 @router.get("/indexer-status", response_class=HTMLResponse)
