@@ -2,7 +2,7 @@ import json
 import uuid
 from html import escape
 from fastapi import APIRouter, Form, Request, HTTPException, UploadFile, File, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sse_starlette.sse import EventSourceResponse
 
@@ -11,11 +11,12 @@ from app.db.repository import ConversationRepository
 from app.rate_limit import InMemoryRateLimiter
 from app.config import get_settings
 from app.citations import CitationStreamRewriter, render_inline_citations_html
-from app.uploads import save_upload
+from app.uploads import save_upload, list_upload_files, upload_dir
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
-_pending_messages: dict[str, tuple[str, str]] = {}  # turn_id -> (conversation_id, text)
+_pending_messages: dict[str, tuple[str, str]] = {}      # turn_id -> (conversation_id, text)
+_pending_acks: dict[str, tuple[str, str, int]] = {}      # turn_id -> (conversation_id, filename, size)
 _limiter: InMemoryRateLimiter | None = None
 
 
@@ -24,6 +25,24 @@ def _get_limiter() -> InMemoryRateLimiter:
     if _limiter is None:
         _limiter = InMemoryRateLimiter(limit_per_min=get_settings().rate_limit_per_min)
     return _limiter
+
+
+def _chip_html(conversation_id: str, filename: str, size: int) -> str:
+    safe = escape(filename)
+    kb = size / 1024
+    return (
+        f'<span class="upload-chip" data-filename="{safe}">'
+        f'<span class="chip-icon">\U0001F4CE</span>'
+        f'<span class="chip-name">{safe}</span>'
+        f'<span class="chip-size">{kb:.1f} KB</span>'
+        f'<button class="chip-x" title="Remove"'
+        f' hx-delete="/chat/{conversation_id}/upload/{safe}"'
+        f' hx-target="closest .upload-chip"'
+        f' hx-swap="outerHTML"'
+        f' hx-confirm="Remove {safe} from this conversation?"'
+        f'>×</button>'
+        f'</span>'
+    )
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -51,19 +70,25 @@ async def chat_page(conversation_id: str, request: Request):
         for m in repo.list_messages(conversation_id):
             ctype = m.content_json.get("type")
             if ctype == "upload":
-                name = escape(m.content_json.get("filename", "file"))
-                kb = (m.content_json.get("size") or 0) / 1024
-                html = f'\U0001F4CE <strong>{name}</strong> ({kb:.1f} KB)'
-            else:
-                raw = m.content_json.get("text") if ctype in ("text", "model_response") else json.dumps(m.content_json)
-                html = escape(raw or "").replace("\n", "<br>")
-                html = render_inline_citations_html(html, github_repo_url=settings.github_repo_url)
+                # Skip in transcript — uploads now appear in the top bar instead.
+                continue
+            if ctype == "tool_call":
+                continue  # tool traces visible only in admin view
+            raw = m.content_json.get("text") if ctype in ("text", "model_response") else json.dumps(m.content_json)
+            html = escape(raw or "").replace("\n", "<br>")
+            html = render_inline_citations_html(html, github_repo_url=settings.github_repo_url)
             messages.append({"role": m.role, "text": html})
-        return templates.TemplateResponse(
-            request,
-            "chat.html",
-            {"tech_name": convo.tech_name, "conversation_id": conversation_id, "messages": messages},
-        )
+    uploads = list_upload_files(conversation_id)
+    return templates.TemplateResponse(
+        request,
+        "chat.html",
+        {
+            "tech_name": convo.tech_name,
+            "conversation_id": conversation_id,
+            "messages": messages,
+            "uploads": uploads,
+        },
+    )
 
 
 @router.post("/chat/{conversation_id}/message", response_class=HTMLResponse)
@@ -111,13 +136,53 @@ async def upload_file(conversation_id: str, file: UploadFile = File(...)):
             content={"type": "upload", **info},
         )
 
+    # Queue an acknowledgment turn that streams via SSE.
+    turn_id = uuid.uuid4().hex
+    _pending_acks[turn_id] = (conversation_id, info["filename"], info["size"])
+    ack_url = f"/chat/{conversation_id}/upload-ack/{turn_id}"
     name = escape(info["filename"])
-    kb = info["size"] / 1024
-    return HTMLResponse(
-        f'<div class="msg msg-system"><div class="content">'
-        f'\U0001F4CE <strong>{name}</strong> ({kb:.1f} KB) — uploaded; the bot will see this on your next message.'
-        f'</div></div>'
+
+    # Out-of-band: append the chip to the uploads bar.
+    chip = _chip_html(conversation_id, info["filename"], info["size"])
+    chip_oob = chip.replace(
+        '<span class="upload-chip"',
+        '<span class="upload-chip" hx-swap-oob="beforeend:#uploads-list"',
+        1,
     )
+
+    # Main response (target = #transcript): an empty assistant bubble that streams
+    # the bot's authentic acknowledgment of the upload.
+    return HTMLResponse(
+        chip_oob
+        + f'<div class="msg msg-assistant"'
+        f' hx-ext="sse"'
+        f' sse-connect="{ack_url}"'
+        f' sse-close="done">'
+        f'<div class="role">assistant</div>'
+        f'<div class="content" sse-swap="token" hx-swap="beforeend"></div>'
+        f'<div class="typing" sse-swap="done" hx-swap="outerHTML">'
+        f'<span></span><span></span><span></span></div>'
+        f'</div>'
+    )
+
+
+@router.delete("/chat/{conversation_id}/upload/{filename}")
+async def delete_upload(conversation_id: str, filename: str):
+    """Remove an uploaded file from disk. The DB upload event remains for audit."""
+    with session_scope() as s:
+        if not ConversationRepository(s).get_conversation(conversation_id):
+            raise HTTPException(404)
+
+    target = None
+    for f in list_upload_files(conversation_id):
+        if f["filename"] == filename:
+            target = f
+            break
+    if not target:
+        raise HTTPException(404)
+    target["_path"].unlink()
+    # Empty body — htmx swaps the chip's outerHTML with this, removing it.
+    return Response(status_code=200, content="")
 
 
 @router.get("/chat/{conversation_id}/stream/{turn_id}")
@@ -137,6 +202,35 @@ async def stream(conversation_id: str, turn_id: str, request: Request):
         rewriter = CitationStreamRewriter(github_repo_url=settings.github_repo_url)
         try:
             async for tok in orch.handle_message(conversation_id, text):
+                rendered = rewriter.feed(tok)
+                if rendered:
+                    yield {"event": "token", "data": rendered}
+            tail = rewriter.flush()
+            if tail:
+                yield {"event": "token", "data": tail}
+        finally:
+            yield {"event": "done", "data": ""}
+
+    return EventSourceResponse(gen())
+
+
+@router.get("/chat/{conversation_id}/upload-ack/{turn_id}")
+async def upload_ack_stream(conversation_id: str, turn_id: str, request: Request):
+    pending = _pending_acks.pop(turn_id, None)
+    if pending is None:
+        async def empty():
+            yield {"event": "done", "data": ""}
+        return EventSourceResponse(empty())
+
+    _, filename, size = pending
+    settings = get_settings()
+    from app.main import build_orchestrator
+    orch = build_orchestrator()
+
+    async def gen():
+        rewriter = CitationStreamRewriter(github_repo_url=settings.github_repo_url)
+        try:
+            async for tok in orch.acknowledge_upload(conversation_id, filename, size):
                 rendered = rewriter.feed(tok)
                 if rendered:
                     yield {"event": "token", "data": rendered}

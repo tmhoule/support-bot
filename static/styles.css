@@ -116,23 +116,65 @@ header h1 { margin: 0 0 0.25rem; font-size: 1.25rem; }
 }
 #chat-form button:hover { background: #0062cc; }
 
-/* --- Upload button (paperclip) --- */
-.upload-btn {
+/* --- Uploads bar (top of chat) --- */
+#uploads-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #e5e5ea;
+  margin-bottom: 0.5rem;
+  position: sticky;
+  top: 0;
+  background: #fafafa;
+  z-index: 5;
+}
+#uploads-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  flex: 1;
+}
+.upload-chip {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 50%;
+  gap: 0.3rem;
+  padding: 0.25rem 0.4rem 0.25rem 0.55rem;
   background: white;
   border: 1px solid #d1d1d6;
+  border-radius: 14px;
+  font-size: 0.8rem;
+  color: #333;
+}
+.upload-chip .chip-name { font-weight: 500; }
+.upload-chip .chip-size { color: #888; font-size: 0.75rem; }
+.upload-chip .chip-x {
+  border: none;
+  background: transparent;
+  color: #999;
   cursor: pointer;
-  font-size: 1.1rem;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0.2rem;
+}
+.upload-chip .chip-x:hover { color: #d33; }
+.upload-add {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3rem 0.7rem;
+  background: white;
+  border: 1px dashed #007aff;
+  border-radius: 14px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #007aff;
+  font-weight: 500;
   user-select: none;
   flex-shrink: 0;
 }
-.upload-btn:hover { background: #f0f0f0; }
-.upload-btn input[type="file"] { display: none; }
+.upload-add:hover { background: #eaf3ff; }
+.upload-add input[type="file"] { display: none; }
 
 /* --- System / upload notice bubble (centered, neutral) --- */
 .msg-system {

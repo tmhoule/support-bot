@@ -1,11 +1,23 @@
 {% extends "base.html" %}
 {% block header %}<span>Hi, {{ tech_name }}</span>{% endblock %}
 {% block content %}
-<div id="transcript">
-  {% for m in messages %}{% include "_message.html" %}{% endfor %}
-</div>
-<div id="compose-bar">
-  <label class="upload-btn" title="Upload a log file">&#128206;
+<div id="uploads-bar">
+  <div id="uploads-list">
+    {% for u in uploads %}
+      <span class="upload-chip" data-filename="{{ u.filename }}">
+        <span class="chip-icon">&#128206;</span>
+        <span class="chip-name">{{ u.filename }}</span>
+        <span class="chip-size">{{ "%.1f"|format(u.size / 1024) }} KB</span>
+        <button class="chip-x" title="Remove"
+                hx-delete="/chat/{{ conversation_id }}/upload/{{ u.filename }}"
+                hx-target="closest .upload-chip"
+                hx-swap="outerHTML"
+                hx-confirm="Remove {{ u.filename }} from this conversation?">&times;</button>
+      </span>
+    {% endfor %}
+  </div>
+  <label class="upload-add" title="Attach a log or config file">
+    + Upload
     <input type="file" name="file"
            hx-post="/chat/{{ conversation_id }}/upload"
            hx-target="#transcript"
@@ -13,6 +25,11 @@
            hx-encoding="multipart/form-data"
            hx-on::after-request="this.value=''">
   </label>
+</div>
+<div id="transcript">
+  {% for m in messages %}{% include "_message.html" %}{% endfor %}
+</div>
+<div id="compose-bar">
   <form id="chat-form"
         hx-post="/chat/{{ conversation_id }}/message"
         hx-target="#transcript"
