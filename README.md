@@ -1,6 +1,6 @@
 # Support Bot
 
-A RAG chatbot that answers tier-1 IT troubleshooting questions from a private GitHub markdown repo of architecture docs.
+A tier-2 IT support assistant used by tier-1 technicians. Grounds answers in a private GitHub markdown repo of architecture and configuration docs.
 
 ## Run
 
