@@ -19,6 +19,29 @@ router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory="templates")
 
 
+@router.get("", response_class=HTMLResponse)
+async def admin_index(request: Request):
+    settings = get_settings()
+    with session_scope() as s:
+        repo = ConversationRepository(s)
+        recent = repo.list_conversations(limit=10, offset=0)
+    chroma = ChromaIndex(persist_dir=f"{settings.data_dir}/chroma")
+    wm = WatermarkStore(Path(settings.data_dir) / "watermarks.json")
+    last_run = None
+    wm_all = wm.all()
+    if wm_all:
+        last_run = max((w.last_run for w in wm_all.values() if w), default=None)
+    return templates.TemplateResponse(
+        request,
+        "admin/index.html",
+        {
+            "recent": recent,
+            "chroma_count": chroma.count(),
+            "last_indexer_run": last_run,
+        },
+    )
+
+
 @router.get("/conversations", response_class=HTMLResponse)
 async def conversations(request: Request, name: str | None = Query(default=None), limit: int = 50, offset: int = 0):
     with session_scope() as s:

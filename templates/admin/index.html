@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Admin{% endblock %}
+{% block content %}
+<nav class="admin-nav">
+  <a href="/admin">Overview</a>
+  <a href="/admin/conversations">All conversations</a>
+  <a href="/admin/indexer-status">Indexer status</a>
+  <span class="admin-warn">internal-only &middot; no auth in v1</span>
+</nav>
+
+<section class="admin-summary">
+  <div class="stat">
+    <div class="stat-num">{{ chroma_count }}</div>
+    <div class="stat-label">indexed chunks</div>
+  </div>
+  <div class="stat">
+    <div class="stat-num">{{ recent|length }}</div>
+    <div class="stat-label">recent conversations</div>
+  </div>
+  <div class="stat">
+    <div class="stat-num">{{ last_indexer_run.strftime("%Y-%m-%d %H:%M") if last_indexer_run else "never" }}</div>
+    <div class="stat-label">last indexer run</div>
+  </div>
+</section>
+
+<h3>Recent conversations</h3>
+{% if recent %}
+<table class="convos">
+  <thead><tr><th>Tech</th><th>Started</th><th>Last active</th><th></th></tr></thead>
+  <tbody>
+    {% for r in recent %}
+    <tr>
+      <td>{{ r.tech_name }}</td>
+      <td>{{ r.started_at.strftime("%Y-%m-%d %H:%M") }}</td>
+      <td>{{ r.last_active.strftime("%Y-%m-%d %H:%M") }}</td>
+      <td><a href="/admin/conversations/{{ r.id }}">view</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p><a href="/admin/conversations">See all conversations &rarr;</a></p>
+{% else %}
+<p>No conversations yet.</p>
+{% endif %}
+{% endblock %}

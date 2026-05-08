@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
 <nav class="admin-nav">
-  <a href="/admin/conversations">Conversations</a>
+  <a href="/admin">Overview</a>
+  <a href="/admin/conversations">All conversations</a>
   <a href="/admin/indexer-status">Indexer status</a>
-  <span class="admin-warn">internal-only · no auth in v1</span>
+  <span class="admin-warn">internal-only &middot; no auth in v1</span>
 </nav>
 <h2>Indexer status</h2>
 <p>Chroma documents: {{ chroma_count }}</p>
